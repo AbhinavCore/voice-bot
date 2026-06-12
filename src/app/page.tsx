@@ -36,11 +36,10 @@ function CallButton({
     <button
       onClick={handleClick}
       onPointerDown={() => console.log("[CallButton] pointerDown")}
-      className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl transition-all duration-300 shadow-lg cursor-pointer ${
-        isActive
+      className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl transition-all duration-300 shadow-lg cursor-pointer ${isActive
           ? "bg-red-500 hover:bg-red-600 animate-pulse"
           : "bg-emerald-500 hover:bg-emerald-600 hover:scale-105"
-      }`}
+        }`}
     >
       {callStatus === "connecting" ? (
         <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
@@ -61,9 +60,8 @@ function MuteButton({ isMuted, onToggle }: { isMuted: boolean; onToggle: () => v
   return (
     <button
       onClick={onToggle}
-      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer ${
-        isMuted ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-      }`}
+      className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 cursor-pointer ${isMuted ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+        }`}
     >
       {isMuted ? (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
@@ -88,9 +86,8 @@ function AudioVisualizer({ isActive, isSpeaking }: { isActive: boolean; isSpeaki
       {barHeights.map((baseHeight, i) => (
         <div
           key={i}
-          className={`w-1.5 rounded-full transition-all duration-300 ${
-            isSpeaking ? "bg-emerald-400" : "bg-blue-400"
-          }`}
+          className={`w-1.5 rounded-full transition-all duration-300 ${isSpeaking ? "bg-emerald-400" : "bg-blue-400"
+            }`}
           style={{
             height: isSpeaking
               ? `${baseHeight}px`
@@ -166,13 +163,12 @@ function LeadPanel({ lead, onSave, callStatus }: { lead: LeadData; onSave: () =>
             <div className="flex justify-between items-center">
               <span className="text-gray-500 text-sm">Interest</span>
               <span
-                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  lead.interestLevel === "high"
+                className={`text-xs px-2 py-0.5 rounded-full font-medium ${lead.interestLevel === "high"
                     ? "bg-green-100 text-green-700"
                     : lead.interestLevel === "medium"
-                    ? "bg-yellow-100 text-yellow-700"
-                    : "bg-gray-100 text-gray-600"
-                }`}
+                      ? "bg-yellow-100 text-yellow-700"
+                      : "bg-gray-100 text-gray-600"
+                  }`}
               >
                 {lead.interestLevel}
               </span>
@@ -182,13 +178,12 @@ function LeadPanel({ lead, onSave, callStatus }: { lead: LeadData; onSave: () =>
             <div className="flex justify-between items-center">
               <span className="text-gray-500 text-sm">Conversion</span>
               <span
-                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  lead.conversionPotential === "hot"
+                className={`text-xs px-2 py-0.5 rounded-full font-medium ${lead.conversionPotential === "hot"
                     ? "bg-red-100 text-red-700"
                     : lead.conversionPotential === "warm"
-                    ? "bg-orange-100 text-orange-700"
-                    : "bg-blue-100 text-blue-600"
-                }`}
+                      ? "bg-orange-100 text-orange-700"
+                      : "bg-blue-100 text-blue-600"
+                  }`}
               >
                 {lead.conversionPotential}
               </span>
@@ -223,11 +218,10 @@ function TranscriptPanel({ transcript }: { transcript: { role: string; text: str
           transcript.map((entry, i) => (
             <div key={i} className={`flex ${entry.role === "assistant" ? "justify-start" : "justify-end"}`}>
               <div
-                className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
-                  entry.role === "assistant"
+                className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${entry.role === "assistant"
                     ? "bg-gray-100 text-gray-800"
                     : "bg-blue-500 text-white"
-                }`}
+                  }`}
               >
                 {entry.text}
               </div>

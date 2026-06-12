@@ -105,11 +105,45 @@ export function useVoiceCall() {
   const leadRef = useRef<LeadData>(createEmptyLead());
   const transcriptRef = useRef<TranscriptEntry[]>([]);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const isGeminiSpeakingRef = useRef(false);
+  const audioBatchRef = useRef<Array<{ data: string; mimeType: string }>>([]);
+  let i =0;
+
+  const sendBatchedAudio = useCallback(() => {
+    if (audioBatchRef.current.length === 0) {
+      return;
+    }
+
+    console.log(`[Call] Sending ${audioBatchRef.current.length} batched audio chunks`);
+
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.warn("[Call] WS not open, clearing audio batch");
+      audioBatchRef.current = [];
+      return;
+    }
+
+    // Send all batched audio chunks
+    audioBatchRef.current.forEach((audioChunk) => {
+      ws.send(JSON.stringify({
+        type: "audio",
+        data: audioChunk.data,
+        mimeType: audioChunk.mimeType,
+      }));
+    });
+
+    // Clear the batch
+    audioBatchRef.current = [];
+  }, []);
 
   const playAudioChunk = useCallback((pcmData: ArrayBuffer, sampleRate: number) => {
     if (!playbackContextRef.current) {
       playbackContextRef.current = new AudioContext({ sampleRate });
     }
+
+    // Set lock when Gemini starts speaking
+    isGeminiSpeakingRef.current = true;
+    console.log("[Call] Gemini started speaking - locking user audio");
 
     const ctx = playbackContextRef.current;
     const int16 = new Int16Array(pcmData);
@@ -129,10 +163,20 @@ export function useVoiceCall() {
     nextPlayTimeRef.current += buffer.duration;
 
     source.onended = () => {
-      setIsSpeaking(false);
+      // Check if this is the last audio chunk by comparing play time
+      const now = ctx.currentTime;
+      if (nextPlayTimeRef.current <= now + 0.1) {
+        // All audio finished playing - unlock and send batched audio
+        isGeminiSpeakingRef.current = false;
+        console.log("[Call] Gemini finished speaking - unlocking user audio");
+        setIsSpeaking(false);
+
+        // Send any batched audio that accumulated during Gemini's speech
+        sendBatchedAudio();
+      }
     };
     setIsSpeaking(true);
-  }, []);
+  }, [sendBatchedAudio]);
 
   const sendLeadToServer = useCallback(() => {
     const currentLead = leadRef.current;
@@ -258,13 +302,24 @@ export function useVoiceCall() {
         const base64 = arrayBufferToBase64(pcm16.buffer);
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isMutedRef.current) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: "audio",
+          // Check if Gemini is currently speaking
+          if (isGeminiSpeakingRef.current) {
+            // Batch the audio instead of sending immediately
+            console.log("[Call] Batching audio - Gemini is speaking");
+            audioBatchRef.current.push({
               data: base64,
               mimeType: "audio/pcm;rate=24000",
-            })
-          );
+            });
+          } else {
+            // Send audio immediately when Gemini is not speaking
+            wsRef.current.send(
+              JSON.stringify({
+                type: "audio",
+                data: base64,
+                mimeType: "audio/pcm;rate=24000",
+              })
+            );
+          }
         }
       };
 
@@ -383,6 +438,8 @@ export function useVoiceCall() {
   const endCall = useCallback(() => {
     console.log("[Call] endCall triggered");
     inCallRef.current = false;
+    isGeminiSpeakingRef.current = false;
+    audioBatchRef.current = [];
 
     sendLeadToServer();
 
