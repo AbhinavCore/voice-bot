@@ -14,6 +14,8 @@ export interface GeminiSessionCallbacks {
   onTurnComplete: () => void;
   onError: (error: string) => void;
   onClose: () => void;
+  onUserTranscription: (text: string, finished: boolean) => void;
+  onAssistantTranscription: (text: string, finished: boolean) => void;
 }
 
 export class GeminiLiveSession {
@@ -52,10 +54,12 @@ export class GeminiLiveSession {
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
-              voiceName: "Zephyr",
+              voiceName: "Sulafat",
             },
           },
         },
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
         contextWindowCompression: {
           triggerTokens: "104857",
           slidingWindow: { targetTokens: "52428" },
@@ -84,6 +88,22 @@ export class GeminiLiveSession {
           console.log("[GeminiClient] Text received:", part.text.substring(0, 100));
           this.callbacks.onText(part.text);
         }
+      }
+    }
+
+    if (message.serverContent.inputTranscription) {
+      const t = message.serverContent.inputTranscription;
+      if (t.text) {
+        console.log("[GeminiClient] User transcription:", t.text, "finished:", t.finished);
+        this.callbacks.onUserTranscription(t.text, t.finished ?? false);
+      }
+    }
+
+    if (message.serverContent.outputTranscription) {
+      const t = message.serverContent.outputTranscription;
+      if (t.text) {
+        console.log("[GeminiClient] Assistant transcription:", t.text, "finished:", t.finished);
+        this.callbacks.onAssistantTranscription(t.text, t.finished ?? false);
       }
     }
 

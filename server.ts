@@ -96,6 +96,16 @@ app.prepare().then(async () => {
             ws.send(JSON.stringify({ type: "text", content: text }));
           }
         },
+        onUserTranscription: (text, finished) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "user_transcription", text, finished }));
+          }
+        },
+        onAssistantTranscription: (text, finished) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "assistant_transcription", text, finished }));
+          }
+        },
         onTurnComplete: () => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "turn_complete" }));

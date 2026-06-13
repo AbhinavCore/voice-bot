@@ -12,40 +12,6 @@ interface TranscriptEntry {
   timestamp: number;
 }
 
-interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-interface SpeechRecognitionErrorEvent {
-  error: string;
-  message: string;
-}
-
-interface SpeechRecognitionInstance {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition: new () => SpeechRecognitionInstance;
-    webkitSpeechRecognition: new () => SpeechRecognitionInstance;
-  }
-}
-
-function getSpeechRecognition(): (new () => SpeechRecognitionInstance) | null {
-  if (typeof window === "undefined") return null;
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
-}
-
 function cleanupResources(
   processorRef: React.MutableRefObject<ScriptProcessorNode | null>,
   sourceRef: React.MutableRefObject<MediaStreamAudioSourceNode | null>,
@@ -54,8 +20,7 @@ function cleanupResources(
   playbackContextRef: React.MutableRefObject<AudioContext | null>,
   wsRef: React.MutableRefObject<WebSocket | null>,
   nextPlayTimeRef: React.MutableRefObject<number>,
-  timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>,
-  recognitionRef: React.MutableRefObject<SpeechRecognitionInstance | null>
+  timerRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>
 ) {
   console.log("[Call] cleanupResources");
   try { processorRef.current?.disconnect(); } catch {}
@@ -63,8 +28,6 @@ function cleanupResources(
   try { audioContextRef.current?.close(); } catch {}
   try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
   try { playbackContextRef.current?.close(); } catch {}
-  try { recognitionRef.current?.stop(); } catch {}
-  try { recognitionRef.current?.abort(); } catch {}
   try { wsRef.current?.close(); } catch {}
 
   processorRef.current = null;
@@ -72,7 +35,6 @@ function cleanupResources(
   audioContextRef.current = null;
   micStreamRef.current = null;
   playbackContextRef.current = null;
-  recognitionRef.current = null;
   wsRef.current = null;
   nextPlayTimeRef.current = 0;
 
@@ -104,10 +66,10 @@ export function useVoiceCall() {
   const inCallRef = useRef(false);
   const leadRef = useRef<LeadData>(createEmptyLead());
   const transcriptRef = useRef<TranscriptEntry[]>([]);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const isGeminiSpeakingRef = useRef(false);
   const audioBatchRef = useRef<Array<{ data: string; mimeType: string }>>([]);
-  let i =0;
+
+  const pendingAssistantTextRef = useRef<string>("");
 
   const sendBatchedAudio = useCallback(() => {
     if (audioBatchRef.current.length === 0) {
@@ -123,7 +85,6 @@ export function useVoiceCall() {
       return;
     }
 
-    // Send all batched audio chunks
     audioBatchRef.current.forEach((audioChunk) => {
       ws.send(JSON.stringify({
         type: "audio",
@@ -132,20 +93,22 @@ export function useVoiceCall() {
       }));
     });
 
-    // Clear the batch
     audioBatchRef.current = [];
   }, []);
 
   const playAudioChunk = useCallback((pcmData: ArrayBuffer, sampleRate: number) => {
-    if (!playbackContextRef.current) {
-      playbackContextRef.current = new AudioContext({ sampleRate });
+    const ctx = playbackContextRef.current;
+    if (!ctx) {
+      console.warn("[Call] No playback context");
+      return;
     }
 
-    // Set lock when Gemini starts speaking
-    isGeminiSpeakingRef.current = true;
-    console.log("[Call] Gemini started speaking - locking user audio");
+    if (ctx.state === "suspended") {
+      ctx.resume();
+    }
 
-    const ctx = playbackContextRef.current;
+    isGeminiSpeakingRef.current = true;
+
     const int16 = new Int16Array(pcmData);
     const float32 = int16ToFloat32(int16);
     const buffer = ctx.createBuffer(1, float32.length, sampleRate);
@@ -163,15 +126,12 @@ export function useVoiceCall() {
     nextPlayTimeRef.current += buffer.duration;
 
     source.onended = () => {
-      // Check if this is the last audio chunk by comparing play time
       const now = ctx.currentTime;
       if (nextPlayTimeRef.current <= now + 0.1) {
-        // All audio finished playing - unlock and send batched audio
         isGeminiSpeakingRef.current = false;
         console.log("[Call] Gemini finished speaking - unlocking user audio");
         setIsSpeaking(false);
 
-        // Send any batched audio that accumulated during Gemini's speech
         sendBatchedAudio();
       }
     };
@@ -204,60 +164,6 @@ export function useVoiceCall() {
     console.log("[Call] save_lead sent to server, transcript length:", transcriptText.length);
   }, []);
 
-  const startSpeechRecognition = useCallback(() => {
-    const SpeechRecognition = getSpeechRecognition();
-    if (!SpeechRecognition) {
-      console.warn("[STT] Browser SpeechRecognition not available");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = "en-IN";
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          const text = result[0].transcript.trim();
-          if (text) {
-            console.log("[STT] User said:", text);
-            const entry: TranscriptEntry = { role: "user", text, timestamp: Date.now() };
-            transcriptRef.current = [...transcriptRef.current, entry];
-            setTranscript([...transcriptRef.current]);
-
-            const updatedLead = parseLeadFromText(text, leadRef.current);
-            leadRef.current = updatedLead;
-            setLead(updatedLead);
-            console.log("[STT] Lead updated:", updatedLead);
-          }
-        }
-      }
-    };
-
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.warn("[STT] Error:", event.error);
-      if (event.error === "no-speech" || event.error === "aborted") return;
-    };
-
-    recognition.onend = () => {
-      if (inCallRef.current && recognitionRef.current) {
-        console.log("[STT] Restarting recognition");
-        try { recognition.start(); } catch {}
-      }
-    };
-
-    recognitionRef.current = recognition;
-
-    try {
-      recognition.start();
-      console.log("[STT] SpeechRecognition started");
-    } catch (e) {
-      console.error("[STT] Failed to start:", e);
-    }
-  }, []);
-
   const startCall = useCallback(async () => {
     if (inCallRef.current) {
       console.log("[Call] Already in call, ignoring");
@@ -274,6 +180,7 @@ export function useVoiceCall() {
       setLead(createEmptyLead());
       leadRef.current = createEmptyLead();
       transcriptRef.current = [];
+      pendingAssistantTextRef.current = "";
 
       console.log("[Call] Requesting microphone access...");
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -290,6 +197,12 @@ export function useVoiceCall() {
       const audioContext = new AudioContext({ sampleRate: 24000 });
       audioContextRef.current = audioContext;
 
+      const playbackCtx = new AudioContext({ sampleRate: 24000 });
+      await playbackCtx.resume();
+      playbackContextRef.current = playbackCtx;
+      nextPlayTimeRef.current = 0;
+      console.log("[Call] Playback AudioContext created, state:", playbackCtx.state);
+
       const source = audioContext.createMediaStreamSource(stream);
       sourceRef.current = source;
 
@@ -302,16 +215,12 @@ export function useVoiceCall() {
         const base64 = arrayBufferToBase64(pcm16.buffer);
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isMutedRef.current) {
-          // Check if Gemini is currently speaking
           if (isGeminiSpeakingRef.current) {
-            // Batch the audio instead of sending immediately
-            console.log("[Call] Batching audio - Gemini is speaking");
             audioBatchRef.current.push({
               data: base64,
               mimeType: "audio/pcm;rate=24000",
             });
           } else {
-            // Send audio immediately when Gemini is not speaking
             wsRef.current.send(
               JSON.stringify({
                 type: "audio",
@@ -349,7 +258,6 @@ export function useVoiceCall() {
               timerRef.current = setInterval(() => {
                 setCallDuration((d) => d + 1);
               }, 1000);
-              startSpeechRecognition();
               break;
 
             case "audio": {
@@ -370,9 +278,40 @@ export function useVoiceCall() {
               break;
             }
 
-            case "turn_complete":
-              console.log("[Call] Turn complete");
+            case "user_transcription": {
+              const text: string = msg.text;
+              if (!text) break;
+
+              console.log("[Gemini STT] User said:", text);
+              const entry: TranscriptEntry = { role: "user", text, timestamp: Date.now() };
+              transcriptRef.current = [...transcriptRef.current, entry];
+              setTranscript([...transcriptRef.current]);
+
+              const updatedLead = parseLeadFromText(text, leadRef.current);
+              leadRef.current = updatedLead;
+              setLead(updatedLead);
               break;
+            }
+
+            case "assistant_transcription": {
+              const text: string = msg.text;
+              if (!text) break;
+
+              pendingAssistantTextRef.current += text;
+              break;
+            }
+
+            case "turn_complete": {
+              if (pendingAssistantTextRef.current) {
+                const fullText = pendingAssistantTextRef.current.trim();
+                pendingAssistantTextRef.current = "";
+                console.log("[Gemini STT] Assistant said (final):", fullText);
+                const entry: TranscriptEntry = { role: "assistant", text: fullText, timestamp: Date.now() };
+                transcriptRef.current = [...transcriptRef.current, entry];
+                setTranscript([...transcriptRef.current]);
+              }
+              break;
+            }
 
             case "error":
               console.error("[Call] Server error:", msg.message);
@@ -433,7 +372,7 @@ export function useVoiceCall() {
       setCallStatus("error");
       inCallRef.current = false;
     }
-  }, [playAudioChunk, sendLeadToServer, startSpeechRecognition]);
+  }, [playAudioChunk, sendLeadToServer]);
 
   const endCall = useCallback(() => {
     console.log("[Call] endCall triggered");
@@ -447,7 +386,7 @@ export function useVoiceCall() {
       cleanupResources(
         processorRef, sourceRef, audioContextRef,
         micStreamRef, playbackContextRef, wsRef,
-        nextPlayTimeRef, timerRef, recognitionRef
+        nextPlayTimeRef, timerRef
       );
       setCallStatus("ended");
 
@@ -478,7 +417,7 @@ export function useVoiceCall() {
       cleanupResources(
         processorRef, sourceRef, audioContextRef,
         micStreamRef, playbackContextRef, wsRef,
-        nextPlayTimeRef, timerRef, recognitionRef
+        nextPlayTimeRef, timerRef
       );
     };
   }, []);

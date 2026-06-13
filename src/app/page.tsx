@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useVoiceCall } from "@/lib/use-voice-call";
 import { LeadData } from "@/lib/lead-parser";
 
@@ -206,27 +206,36 @@ function LeadPanel({ lead, onSave, callStatus }: { lead: LeadData; onSave: () =>
 }
 
 function TranscriptPanel({ transcript }: { transcript: { role: string; text: string; timestamp: number }[] }) {
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcript]);
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex-1 min-h-0 overflow-hidden flex flex-col">
-      <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 flex flex-col" style={{ height: "400px" }}>
+      <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 shrink-0">
         Transcript
       </h3>
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+      <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-0">
         {transcript.length === 0 ? (
           <p className="text-gray-400 text-sm italic">Conversation will appear here</p>
         ) : (
-          transcript.map((entry, i) => (
-            <div key={i} className={`flex ${entry.role === "assistant" ? "justify-start" : "justify-end"}`}>
-              <div
-                className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${entry.role === "assistant"
-                    ? "bg-gray-100 text-gray-800"
-                    : "bg-blue-500 text-white"
-                  }`}
-              >
-                {entry.text}
+          <>
+            {transcript.map((entry, i) => (
+              <div key={i} className={`flex ${entry.role === "assistant" ? "justify-start" : "justify-end"}`}>
+                <div
+                  className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${entry.role === "assistant"
+                      ? "bg-gray-100 text-gray-800"
+                      : "bg-blue-500 text-white"
+                    }`}
+                >
+                  {entry.text}
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+            <div ref={bottomRef} />
+          </>
         )}
       </div>
     </div>
